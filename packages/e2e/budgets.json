@@ -1,0 +1,19 @@
+{
+  "ttfr_1m_pts": {
+    "chromium-webgpu": 120000,
+    "chromium-webgl": 180000,
+    "firefox-webgpu": 120000,
+    "firefox-webgl": 180000,
+    "webkit": 180000
+  },
+  "frame_time_1m_pts": {
+    "chromium-webgpu": 50,
+    "chromium-webgl": 50,
+    "_": 50
+  },
+  "js_heap_mb_1m_pts": {
+    "_": 200
+  },
+  "bundle_wasm_kb_gz": 1024,
+  "bundle_js_kb_gz": 50
+}
