@@ -6,7 +6,7 @@ use image::{ImageBuffer, ImageFormat, Rgba};
 use wgpu::{Instance, PowerPreference, RequestAdapterOptions, TextureViewDescriptor};
 
 use crate::error::RendererError;
-use crate::scene::{Renderable, Scene};
+use crate::scene::Renderable;
 
 /// Headless wgpu context at a fixed output size and `Rgba8UnormSrgb` target.
 pub struct HeadlessRenderer {
@@ -63,7 +63,7 @@ impl HeadlessRenderer {
     }
 
     /// Renders `scene` to a PNG (sRGB) byte vector.
-    pub fn render_to_png(&self, scene: &Scene) -> Result<Vec<u8>, RendererError> {
+    pub fn render_to_png(&self, scene: &dyn Renderable) -> Result<Vec<u8>, RendererError> {
         let (width, height) = self.size;
         let format = self.format;
 

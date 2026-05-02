@@ -65,7 +65,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: cargo test
-        run: cargo test --workspace --exclude phantomat-renderer
+        run: cargo test --workspace --exclude phantomat-renderer --exclude phantomat-layers
 
   gpu-test:
     name: gpu (${{ matrix.os }} / ${{ matrix.backend }})
@@ -95,19 +95,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
 
-      - name: cargo test phantomat-renderer (Linux)
+      - name: cargo test phantomat-renderer + phantomat-layers (Linux)
         if: matrix.os == 'ubuntu-latest'
         env:
           VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-        run: cargo test -p phantomat-renderer --release
+        run: |
+          cargo test -p phantomat-renderer --release
+          cargo test -p phantomat-layers --release
 
-      - name: cargo test phantomat-renderer (macOS)
+      - name: cargo test phantomat-renderer + phantomat-layers (macOS)
         if: matrix.os == 'macos-latest'
-        run: cargo test -p phantomat-renderer --release
+        run: |
+          cargo test -p phantomat-renderer --release
+          cargo test -p phantomat-layers --release
 
-      - name: cargo test phantomat-renderer (Windows)
+      - name: cargo test phantomat-renderer + phantomat-layers (Windows)
         if: matrix.os == 'windows-latest'
-        run: cargo test -p phantomat-renderer --release --features dx12
+        run: |
+          cargo test -p phantomat-renderer --release --features dx12
+          cargo test -p phantomat-layers --release --features dx12
 
   bench-check:
     name: bench (--no-run)

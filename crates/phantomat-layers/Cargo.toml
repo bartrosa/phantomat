@@ -1,0 +1,31 @@
+[package]
+name = "phantomat-layers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Visualization layers (scatter plot) on top of phantomat-renderer."
+
+[features]
+default = []
+dx12 = ["phantomat-renderer/dx12"]
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+phantomat-renderer = { path = "../phantomat-renderer" }
+wgpu.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+dssim = "3"
+image = { version = "=0.25.5", default-features = false, features = ["png"] }
+phantomat-core = { path = "../phantomat-core" }
+proptest = "1"
+rand = "0.8"
+rgb = "0.8"
+
+[[bench]]
+name = "scatter_bench"
+harness = false
