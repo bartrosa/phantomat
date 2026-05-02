@@ -58,6 +58,88 @@ impl ScatterLayer {
             inner: Some(InnerScatter::new(positions, colors, sizes, (1, 1))),
         })
     }
+
+    /// Seven column-major `Float32` buffers in wasm linear memory (`n` points each).
+    ///
+    /// # Safety
+    /// Pointers must be valid for `n` floats until this layer is consumed by [`Scene::add_layer`].
+    #[wasm_bindgen(js_name = fromArrowPtrs)]
+    pub unsafe fn from_arrow_ptrs(
+        n: u32,
+        x_ptr: *const f32,
+        y_ptr: *const f32,
+        r_ptr: *const f32,
+        g_ptr: *const f32,
+        b_ptr: *const f32,
+        a_ptr: *const f32,
+        size_ptr: *const f32,
+    ) -> Result<ScatterLayer, JsValue> {
+        let n = usize::try_from(n).map_err(|_| JsValue::from_str("n too large"))?;
+        if n > 0
+            && (x_ptr.is_null()
+                || y_ptr.is_null()
+                || r_ptr.is_null()
+                || g_ptr.is_null()
+                || b_ptr.is_null()
+                || a_ptr.is_null()
+                || size_ptr.is_null())
+        {
+            return Err(JsValue::from_str("null column pointer"));
+        }
+        let inner = InnerScatter::from_raw_f32_columns(
+            n,
+            x_ptr,
+            y_ptr,
+            r_ptr,
+            g_ptr,
+            b_ptr,
+            a_ptr,
+            size_ptr,
+            (1, 1),
+        );
+        Ok(Self {
+            inner: Some(inner),
+        })
+    }
+
+    /// Ergonomic path: seven separate JS [`Float32Array`]s (length `n` each) — may copy from JS heap into wasm.
+    #[wasm_bindgen(js_name = fromArrowFloat32Arrays)]
+    pub fn from_arrow_float32_arrays(
+        x: js_sys::Float32Array,
+        y: js_sys::Float32Array,
+        r: js_sys::Float32Array,
+        g: js_sys::Float32Array,
+        b: js_sys::Float32Array,
+        a: js_sys::Float32Array,
+        size: js_sys::Float32Array,
+    ) -> Result<ScatterLayer, JsValue> {
+        let n = x.length() as usize;
+        if y.length() as usize != n
+            || r.length() as usize != n
+            || g.length() as usize != n
+            || b.length() as usize != n
+            || a.length() as usize != n
+            || size.length() as usize != n
+        {
+            return Err(JsValue::from_str("all Arrow columns must have the same length"));
+        }
+        let mut positions: Vec<[f32; 2]> = Vec::with_capacity(n);
+        let mut colors: Vec<[f32; 4]> = Vec::with_capacity(n);
+        let mut sizes: Vec<f32> = Vec::with_capacity(n);
+        for i in 0..n {
+            positions.push([x.get_index(i as u32), y.get_index(i as u32)]);
+            colors.push([
+                r.get_index(i as u32),
+                g.get_index(i as u32),
+                b.get_index(i as u32),
+                a.get_index(i as u32),
+            ]);
+            sizes.push(size.get_index(i as u32));
+        }
+        Ok(Self {
+            inner: Some(InnerScatter::new(positions, colors, sizes, (1, 1))),
+        })
+    }
 }
 
 /// Canvas-backed compositor: holds a [`wgpu::Surface`] and ordered scatter layers.
