@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use ndarray::ArrayView2;
-use numpy::{PyReadonlyArray1, PyReadonlyArray2};
+use ndarray::{Array2, ArrayView2};
+use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use phantomat_core::reference::histogram_2d_cpu;
 use phantomat_layers::ScatterLayer;
 use phantomat_renderer::{ClearScene, HeadlessRenderer, Renderable, Scene as RendererScene};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -175,9 +176,45 @@ fn array1_sizes(view: ndarray::ArrayView1<f32>) -> Vec<f32> {
     view.iter().copied().collect()
 }
 
+/// `histogram_2d(xs, ys, bins_x, bins_y, range_x, range_y)` — CPU oracle (`u32` counts), shape `(bins_y, bins_x)`.
+#[pyfunction]
+#[pyo3(signature = (xs, ys, bins_x, bins_y, range_x, range_y))]
+fn histogram_2d(
+    py: Python<'_>,
+    xs: PyReadonlyArray1<f64>,
+    ys: PyReadonlyArray1<f64>,
+    bins_x: usize,
+    bins_y: usize,
+    range_x: (f64, f64),
+    range_y: (f64, f64),
+) -> PyResult<PyObject> {
+    let x_arr = xs.as_array();
+    let y_arr = ys.as_array();
+    let xv = x_arr
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("xs must be contiguous"))?;
+    let yv = y_arr
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("ys must be contiguous"))?;
+    if xv.len() != yv.len() {
+        return Err(PyValueError::new_err("xs and ys must have the same length"));
+    }
+    let grid = histogram_2d_cpu(xv, yv, bins_x, bins_y, (range_x, range_y));
+    let rows = grid.len();
+    let cols = grid.first().map(|r| r.len()).unwrap_or(0);
+    let flat: Vec<u32> = grid.into_iter().flatten().collect();
+    let arr =
+        Array2::from_shape_vec((rows, cols), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let array = PyArray2::from_owned_array(py, arr);
+    Ok(array.unbind().into())
+}
+
 /// Python package `phantomat._native` (see `python/pyproject.toml` / maturin `module-name`).
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyScene>()?;
+    let reference = PyModule::new(m.py(), "reference")?;
+    reference.add_function(wrap_pyfunction!(histogram_2d, &reference)?)?;
+    m.add_submodule(&reference)?;
     Ok(())
 }
