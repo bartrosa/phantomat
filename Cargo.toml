@@ -7,9 +7,13 @@ version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/OWNER/phantomat"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 glam = "0.29"
 wgpu = "23"
+
+[profile.release]
+panic = "abort"
+strip = true
