@@ -230,6 +230,11 @@ impl Scene {
         })
     }
 
+    /// Removes all layers (e.g. before replacing IPC payload from Jupyter).
+    pub fn clear(&mut self) {
+        self.layers.clear();
+    }
+
     /// Adds a scatter layer; canvas size from this scene is applied. Consumes the JS wrapper.
     pub fn add_layer(&mut self, mut layer: ScatterLayer) -> Result<(), JsValue> {
         let mut inner = layer
