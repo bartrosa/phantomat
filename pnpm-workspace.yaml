@@ -1,0 +1,4 @@
+# Package manager: pnpm. Lockfile: pnpm-lock.yaml (run `pnpm install`; do not edit the lockfile by hand).
+packages:
+  - "packages/*"
+  - "examples/web"

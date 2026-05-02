@@ -58,6 +58,88 @@ impl ScatterLayer {
             inner: Some(InnerScatter::new(positions, colors, sizes, (1, 1))),
         })
     }
+
+    /// Seven column-major `Float32` buffers in wasm linear memory (`n` points each).
+    ///
+    /// # Safety
+    /// Pointers must be valid for `n` floats until this layer is consumed by [`Scene::add_layer`].
+    #[wasm_bindgen(js_name = fromArrowPtrs)]
+    pub unsafe fn from_arrow_ptrs(
+        n: u32,
+        x_ptr: *const f32,
+        y_ptr: *const f32,
+        r_ptr: *const f32,
+        g_ptr: *const f32,
+        b_ptr: *const f32,
+        a_ptr: *const f32,
+        size_ptr: *const f32,
+    ) -> Result<ScatterLayer, JsValue> {
+        let n = usize::try_from(n).map_err(|_| JsValue::from_str("n too large"))?;
+        if n > 0
+            && (x_ptr.is_null()
+                || y_ptr.is_null()
+                || r_ptr.is_null()
+                || g_ptr.is_null()
+                || b_ptr.is_null()
+                || a_ptr.is_null()
+                || size_ptr.is_null())
+        {
+            return Err(JsValue::from_str("null column pointer"));
+        }
+        let inner = InnerScatter::from_raw_f32_columns(
+            n,
+            x_ptr,
+            y_ptr,
+            r_ptr,
+            g_ptr,
+            b_ptr,
+            a_ptr,
+            size_ptr,
+            (1, 1),
+        );
+        Ok(Self {
+            inner: Some(inner),
+        })
+    }
+
+    /// Ergonomic path: seven separate JS [`Float32Array`]s (length `n` each) — may copy from JS heap into wasm.
+    #[wasm_bindgen(js_name = fromArrowFloat32Arrays)]
+    pub fn from_arrow_float32_arrays(
+        x: js_sys::Float32Array,
+        y: js_sys::Float32Array,
+        r: js_sys::Float32Array,
+        g: js_sys::Float32Array,
+        b: js_sys::Float32Array,
+        a: js_sys::Float32Array,
+        size: js_sys::Float32Array,
+    ) -> Result<ScatterLayer, JsValue> {
+        let n = x.length() as usize;
+        if y.length() as usize != n
+            || r.length() as usize != n
+            || g.length() as usize != n
+            || b.length() as usize != n
+            || a.length() as usize != n
+            || size.length() as usize != n
+        {
+            return Err(JsValue::from_str("all Arrow columns must have the same length"));
+        }
+        let mut positions: Vec<[f32; 2]> = Vec::with_capacity(n);
+        let mut colors: Vec<[f32; 4]> = Vec::with_capacity(n);
+        let mut sizes: Vec<f32> = Vec::with_capacity(n);
+        for i in 0..n {
+            positions.push([x.get_index(i as u32), y.get_index(i as u32)]);
+            colors.push([
+                r.get_index(i as u32),
+                g.get_index(i as u32),
+                b.get_index(i as u32),
+                a.get_index(i as u32),
+            ]);
+            sizes.push(size.get_index(i as u32));
+        }
+        Ok(Self {
+            inner: Some(InnerScatter::new(positions, colors, sizes, (1, 1))),
+        })
+    }
 }
 
 /// Canvas-backed compositor: holds a [`wgpu::Surface`] and ordered scatter layers.
@@ -77,18 +159,67 @@ pub struct Scene {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     format: wgpu::TextureFormat,
+    /// `"webgpu"` or `"webgl"` (for E2E / diagnostics).
+    backend_name: String,
     layers: Vec<InnerScatter>,
+}
+
+enum BackendPref {
+    All,
+    WebGpuOnly,
+    GlOnly,
+}
+
+fn instance_backends(pref: BackendPref) -> wgpu::Backends {
+    match pref {
+        BackendPref::All => wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+        BackendPref::WebGpuOnly => wgpu::Backends::BROWSER_WEBGPU,
+        BackendPref::GlOnly => wgpu::Backends::GL,
+    }
+}
+
+fn adapter_backend_label(adapter: &wgpu::Adapter) -> String {
+    match adapter.get_info().backend {
+        wgpu::Backend::Gl => "webgl".to_string(),
+        _ => "webgpu".to_string(),
+    }
 }
 
 #[wasm_bindgen]
 impl Scene {
     /// Async GPU init: picks WebGPU when available, otherwise WebGL.
     pub async fn new(canvas: HtmlCanvasElement) -> Result<Scene, JsValue> {
+        Self::new_with_backend_impl(canvas, BackendPref::All).await
+    }
+
+    /// Init with a hint: `webgpu` (WebGPU only), `webgl` (GL only), or `all` / `auto` (default order).
+    #[wasm_bindgen(js_name = newWithBackend)]
+    pub async fn new_with_backend(
+        canvas: HtmlCanvasElement,
+        backend_preference: &str,
+    ) -> Result<Scene, JsValue> {
+        let pref = match backend_preference {
+            "webgpu" => BackendPref::WebGpuOnly,
+            "webgl" => BackendPref::GlOnly,
+            "all" | "auto" | "" => BackendPref::All,
+            _ => {
+                return Err(JsValue::from_str(
+                    "backend_preference must be 'webgpu', 'webgl', or 'all' / 'auto'",
+                ));
+            }
+        };
+        Self::new_with_backend_impl(canvas, pref).await
+    }
+
+    async fn new_with_backend_impl(
+        canvas: HtmlCanvasElement,
+        pref: BackendPref,
+    ) -> Result<Scene, JsValue> {
         let width = canvas.width().max(1);
         let height = canvas.height().max(1);
 
         let instance = wgpu::Instance::new(InstanceDescriptor {
-            backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+            backends: instance_backends(pref),
             ..Default::default()
         });
 
@@ -104,6 +235,8 @@ impl Scene {
             })
             .await
             .ok_or_else(|| JsValue::from_str("no suitable GPU adapter (WebGPU/WebGL)"))?;
+
+        let backend_name = adapter_backend_label(&adapter);
 
         let limits = wgpu::Limits::downlevel_webgl2_defaults();
         let (device, queue) = adapter
@@ -144,8 +277,20 @@ impl Scene {
             queue,
             config,
             format,
+            backend_name,
             layers: Vec::new(),
         })
+    }
+
+    /// Active graphics backend for this scene (`webgpu` or `webgl`).
+    #[wasm_bindgen(getter)]
+    pub fn backend(&self) -> String {
+        self.backend_name.clone()
+    }
+
+    /// Removes all layers (e.g. before replacing IPC payload from Jupyter).
+    pub fn clear(&mut self) {
+        self.layers.clear();
     }
 
     /// Adds a scatter layer; canvas size from this scene is applied. Consumes the JS wrapper.

@@ -4,8 +4,9 @@
 //! with non-premultiplied fragment output: rgb from the material, alpha = `color.a * coverage`).
 
 use std::mem;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use arrow::record_batch::RecordBatch;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec2;
 use wgpu::util::DeviceExt;
@@ -17,7 +18,22 @@ use wgpu::{
 
 use phantomat_renderer::Renderable;
 
+use crate::arrow_schema::{self, ArrowSchemaError};
 use crate::layer::Layer;
+
+/// Column-major raw pointers into wasm linear memory (see [`ScatterLayer::from_raw_f32_columns`]).
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy)]
+struct WasmRawCols {
+    n: usize,
+    x: *const f32,
+    y: *const f32,
+    r: *const f32,
+    g: *const f32,
+    b: *const f32,
+    a: *const f32,
+    s: *const f32,
+}
 
 /// Per-point instance data. Layout matches WGSL `min` sizes and 16-byte rules for the uniform
 /// block is separate; instance stride is 48 bytes.
@@ -241,6 +257,7 @@ impl ScatterGpuState {
 ///
 /// `canvas_px` must match the render target size so pixel-sized disks map correctly.
 pub struct ScatterLayer {
+    /// Owned path (from [`ScatterLayer::new`]). Empty when using Arrow or raw pointer storage.
     pub positions: Vec<[f32; 2]>,
     pub colors: Vec<[f32; 4]>,
     pub sizes: Vec<f32>,
@@ -249,6 +266,11 @@ pub struct ScatterLayer {
     /// Set to `false` when compositing multiple layers so earlier draws stay visible.
     clear_before_draw: bool,
     gpu: Mutex<Option<ScatterGpuState>>,
+    /// Zero-copy path: read instance columns from Arrow (`x`,`y`,`r`,`g`,`b`,`a`,`size` Float32).
+    arrow_batch: Option<Arc<RecordBatch>>,
+    /// WebAssembly: read columns from pointers into wasm linear memory.
+    #[cfg(target_arch = "wasm32")]
+    wasm_raw: Option<WasmRawCols>,
 }
 
 impl ScatterLayer {
@@ -282,7 +304,78 @@ impl ScatterLayer {
             canvas_px,
             clear_before_draw: true,
             gpu: Mutex::new(None),
+            arrow_batch: None,
+            #[cfg(target_arch = "wasm32")]
+            wasm_raw: None,
         }
+    }
+
+    /// Builds from an Arrow [`RecordBatch`] with Float32 columns `x`, `y`, `r`, `g`, `b`, `a`, `size`.
+    ///
+    /// Retains the underlying Arrow buffers (no copy of column data into Rust `Vec`s).
+    pub fn from_arrow(batch: &RecordBatch, canvas_px: (u32, u32)) -> Result<Self, ArrowSchemaError> {
+        Self::from_arrow_arc(Arc::new(batch.clone()), canvas_px)
+    }
+
+    /// Same as [`ScatterLayer::from_arrow`] but takes an owned [`Arc`] (avoids cloning buffers).
+    pub fn from_arrow_arc(batch: Arc<RecordBatch>, canvas_px: (u32, u32)) -> Result<Self, ArrowSchemaError> {
+        arrow_schema::validate_scatter_batch(batch.as_ref())?;
+        Ok(Self {
+            positions: Vec::new(),
+            colors: Vec::new(),
+            sizes: Vec::new(),
+            canvas_px,
+            clear_before_draw: true,
+            gpu: Mutex::new(None),
+            arrow_batch: Some(batch),
+            #[cfg(target_arch = "wasm32")]
+            wasm_raw: None,
+        })
+    }
+
+    /// Builds from seven aligned `f32` buffers (length `n`) in wasm linear memory.
+    ///
+    /// # Safety
+    /// Each pointer must be valid for `n` elements until this layer is dropped or replaced via [`ScatterLayer::set_points`].
+    #[cfg(target_arch = "wasm32")]
+    pub unsafe fn from_raw_f32_columns(
+        n: usize,
+        x: *const f32,
+        y: *const f32,
+        r: *const f32,
+        g: *const f32,
+        b: *const f32,
+        a: *const f32,
+        size: *const f32,
+        canvas_px: (u32, u32),
+    ) -> Self {
+        Self {
+            positions: Vec::new(),
+            colors: Vec::new(),
+            sizes: Vec::new(),
+            canvas_px,
+            clear_before_draw: true,
+            gpu: Mutex::new(None),
+            arrow_batch: None,
+            wasm_raw: Some(WasmRawCols {
+                n,
+                x,
+                y,
+                r,
+                g,
+                b,
+                a,
+                s: size,
+            }),
+        }
+    }
+
+    /// Debug-only: address of the `x` column values buffer when using Arrow storage (`None` otherwise).
+    #[must_use]
+    pub fn debug_values_buffer_addr_x(&self) -> Option<usize> {
+        let batch = self.arrow_batch.as_ref()?;
+        let arr = arrow_schema::col_f32(batch.as_ref(), "x").ok()?;
+        Some(arr.values().as_ptr() as usize)
     }
 
     /// Canvas size in pixels (must match headless renderer dimensions).
@@ -294,13 +387,25 @@ impl ScatterLayer {
     /// Number of points.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.positions.len()
+        self.row_count()
     }
 
     /// Returns `true` when there are no points.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.positions.is_empty()
+        self.row_count() == 0
+    }
+
+    #[must_use]
+    fn row_count(&self) -> usize {
+        if let Some(b) = &self.arrow_batch {
+            return b.num_rows();
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = self.wasm_raw {
+            return w.n;
+        }
+        self.positions.len()
     }
 
     /// Replaces point data. **Panics** on length mismatch.
@@ -311,6 +416,11 @@ impl ScatterLayer {
         self.positions = positions;
         self.colors = colors;
         self.sizes = sizes;
+        self.arrow_batch = None;
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.wasm_raw = None;
+        }
     }
 
     /// Updates canvas resolution (e.g. after resize). Must match render target.
@@ -324,8 +434,43 @@ impl ScatterLayer {
     }
 
     fn build_instances(&self) -> Vec<ScatterInstance> {
-        let n = self.positions.len();
+        let n = self.row_count();
         let mut out = Vec::with_capacity(n);
+        if let Some(batch) = &self.arrow_batch {
+            let x = arrow_schema::col_f32(batch.as_ref(), "x").expect("validated batch");
+            let y = arrow_schema::col_f32(batch.as_ref(), "y").expect("validated batch");
+            let r = arrow_schema::col_f32(batch.as_ref(), "r").expect("validated batch");
+            let g = arrow_schema::col_f32(batch.as_ref(), "g").expect("validated batch");
+            let b = arrow_schema::col_f32(batch.as_ref(), "b").expect("validated batch");
+            let a = arrow_schema::col_f32(batch.as_ref(), "a").expect("validated batch");
+            let sz = arrow_schema::col_f32(batch.as_ref(), "size").expect("validated batch");
+            for i in 0..n {
+                out.push(ScatterInstance::new(
+                    [x.value(i), y.value(i)],
+                    [r.value(i), g.value(i), b.value(i), a.value(i)],
+                    sz.value(i),
+                ));
+            }
+            return out;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(w) = self.wasm_raw {
+            unsafe {
+                for i in 0..n {
+                    out.push(ScatterInstance::new(
+                        [*w.x.add(i), *w.y.add(i)],
+                        [
+                            *w.r.add(i),
+                            *w.g.add(i),
+                            *w.b.add(i),
+                            *w.a.add(i),
+                        ],
+                        *w.s.add(i),
+                    ));
+                }
+            }
+            return out;
+        }
         for i in 0..n {
             out.push(ScatterInstance::new(
                 self.positions[i],
@@ -346,7 +491,7 @@ impl Renderable for ScatterLayer {
         queue: &Queue,
         format: TextureFormat,
     ) {
-        let count = self.positions.len() as u32;
+        let count = self.row_count() as u32;
         let instances = self.build_instances();
         let canvas = self.canvas_px;
 

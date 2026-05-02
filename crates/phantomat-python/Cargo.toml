@@ -1,0 +1,23 @@
+[package]
+name = "phantomat-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "PyO3 bindings for Phantomat (headless scatter → PNG)."
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+arrow.workspace = true
+ndarray = "0.16"
+numpy = "0.24"
+phantomat-core = { path = "../phantomat-core" }
+phantomat-layers = { path = "../phantomat-layers" }
+phantomat-renderer = { path = "../phantomat-renderer" }
+pyo3 = { version = "0.24", features = ["abi3-py310", "extension-module"] }
+pyo3-arrow = { version = "0.8", default-features = false }
+wgpu.workspace = true

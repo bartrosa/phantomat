@@ -1,0 +1,85 @@
+name: E2E cross-browser
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-cross-browser:
+    name: e2e (macos)
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@1.88
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
+
+      - name: Build wasm (phantomat-wasm)
+        run: wasm-pack build --target web --release crates/phantomat-wasm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @phantomat/core
+        run: pnpm --filter @phantomat/core build
+
+      - name: Build examples-web
+        run: pnpm --filter examples-web build
+
+      - name: Install Playwright (chromium, firefox, webkit)
+        run: pnpm --filter e2e exec playwright install --with-deps chromium firefox webkit
+
+      - name: Run e2e
+        env:
+          CI: true
+        run: pnpm --filter e2e test
+
+      - name: Job summary (matrix + budgets table)
+        if: always()
+        run: |
+          {
+            echo "## E2E cross-browser (macOS)"
+            echo ""
+            echo "| Project | Notes |"
+            echo "| --- | --- |"
+            echo "| chromium-webgpu | Default Chrome (WebGPU if available) |"
+            echo "| chromium-webgl | \`--disable-features=WebGPU\` |"
+            echo "| firefox-webgpu | Default Firefox |"
+            echo "| firefox-webgl | \`dom.webgpu.enabled\` = false |"
+            echo "| webkit | Desktop Safari |"
+            echo ""
+            echo "Compare **TTFR / frame / heap** against \`packages/e2e/budgets.json\` in the run log above."
+            echo "Do not use \`--update-snapshots\` in CI; update PNG baselines locally with \`UPDATE_BASELINES=1\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: packages/e2e/playwright-report/
+          if-no-files-found: ignore

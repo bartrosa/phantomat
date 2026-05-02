@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Phantomat WASM demo</title>
+    <title>Phantomat — examples web (e2e)</title>
     <style>
       body {
         margin: 0;
@@ -22,8 +22,12 @@
     </style>
   </head>
   <body>
-    <p>Scatter layer (10k points). Build <code>pkg/</code> into this folder, then serve.</p>
+    <p>
+      E2E / dev: <code>?scenario=scatter_100&seed=42&backend=webgpu</code> ·
+      <code>scenario=scatter_1m</code> ·
+      <code>window.phantomatStats</code> after first frame.
+    </p>
     <canvas id="c" width="800" height="600"></canvas>
-    <script type="module" src="./main.js"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

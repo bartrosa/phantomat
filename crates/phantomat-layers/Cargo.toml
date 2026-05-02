@@ -8,13 +8,17 @@ rust-version.workspace = true
 description = "Visualization layers (scatter plot) on top of phantomat-renderer."
 
 [features]
-default = []
+default = ["compute_aggregation"]
+compute_aggregation = ["phantomat-renderer/compute_aggregation"]
 dx12 = ["phantomat-renderer/dx12"]
 
 [dependencies]
+arrow.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
+phantomat-core = { path = "../phantomat-core" }
 phantomat-renderer = { path = "../phantomat-renderer" }
+thiserror = "1"
 wgpu.workspace = true
 
 [dev-dependencies]

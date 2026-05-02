@@ -1,0 +1,220 @@
+//! PyO3 extension: headless [`ScatterLayer`] rendering via [`phantomat_renderer::HeadlessRenderer`].
+
+use std::sync::Arc;
+
+use ndarray::{Array2, ArrayView2};
+use numpy::{PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use phantomat_core::reference::histogram_2d_cpu;
+use phantomat_layers::ScatterLayer;
+use phantomat_renderer::{ClearScene, HeadlessRenderer, Renderable, Scene as RendererScene};
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3_arrow::input::AnyRecordBatch;
+use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
+
+/// Renders multiple [`ScatterLayer`]s in order (first clears to black by default).
+struct StackedScatters<'a> {
+    layers: &'a [ScatterLayer],
+}
+
+impl Renderable for StackedScatters<'_> {
+    fn render(
+        &self,
+        encoder: &mut CommandEncoder,
+        view: &TextureView,
+        device: &Device,
+        queue: &Queue,
+        format: TextureFormat,
+    ) {
+        for layer in self.layers {
+            layer.render(encoder, view, device, queue, format);
+        }
+    }
+}
+
+fn renderer_err(e: phantomat_renderer::RendererError) -> PyErr {
+    PyRuntimeError::new_err(e.to_string())
+}
+
+#[pyclass(name = "Scene")]
+pub struct PyScene {
+    renderer: HeadlessRenderer,
+    width: u32,
+    height: u32,
+    layers: Vec<ScatterLayer>,
+}
+
+#[pymethods]
+impl PyScene {
+    #[new]
+    fn new(width: u32, height: u32) -> PyResult<Self> {
+        let renderer = HeadlessRenderer::new(width, height).map_err(renderer_err)?;
+        Ok(Self {
+            renderer,
+            width,
+            height,
+            layers: Vec::new(),
+        })
+    }
+
+    fn add_scatter(
+        &mut self,
+        positions: PyReadonlyArray2<f32>,
+        colors: PyReadonlyArray2<f32>,
+        sizes: PyReadonlyArray1<f32>,
+    ) -> PyResult<()> {
+        let pos = positions.as_array();
+        let col = colors.as_array();
+        let siz = sizes.as_array();
+
+        let pos_shape = pos.shape();
+        if pos_shape.len() != 2 || pos_shape[1] != 2 {
+            return Err(PyValueError::new_err(
+                "positions must be a 2D array with shape (N, 2)",
+            ));
+        }
+        let n = pos_shape[0];
+        let col_shape = col.shape();
+        if col_shape != [n, 4] {
+            return Err(PyValueError::new_err(
+                "colors must have shape (N, 4) matching positions",
+            ));
+        }
+        if siz.shape() != [n] {
+            return Err(PyValueError::new_err(
+                "sizes must be a 1D array of shape (N,) matching positions",
+            ));
+        }
+
+        let positions_vec = array2_points(pos);
+        let colors_vec = array2_rgba(col);
+        let sizes_vec = array1_sizes(siz);
+
+        let mut layer = ScatterLayer::new(
+            positions_vec,
+            colors_vec,
+            sizes_vec,
+            (self.width, self.height),
+        );
+        if !self.layers.is_empty() {
+            layer.set_clear_before_draw(false);
+        }
+        self.layers.push(layer);
+        Ok(())
+    }
+
+    /// Arrow [`RecordBatch`] / stream with Float32 columns `x`, `y`, `r`, `g`, `b`, `a`, `size` (same `N`).
+    fn add_scatter_arrow(&mut self, input: AnyRecordBatch) -> PyResult<()> {
+        let batch: arrow::record_batch::RecordBatch = match input {
+            AnyRecordBatch::RecordBatch(p) => p.into_inner(),
+            AnyRecordBatch::Stream(s) => {
+                let mut reader = s.into_reader()?;
+                reader
+                    .next()
+                    .transpose()
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?
+                    .ok_or_else(|| PyValueError::new_err("empty Arrow stream"))?
+            }
+        };
+        let arc = Arc::new(batch);
+        let mut layer = ScatterLayer::from_arrow_arc(arc, (self.width, self.height))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if !self.layers.is_empty() {
+            layer.set_clear_before_draw(false);
+        }
+        self.layers.push(layer);
+        Ok(())
+    }
+
+    /// Debug: values-buffer address for column `x` on the last Arrow-backed layer (`None` if N/A).
+    fn debug_values_buffer_addr_x(&self) -> Option<usize> {
+        for layer in self.layers.iter().rev() {
+            if let Some(a) = layer.debug_values_buffer_addr_x() {
+                return Some(a);
+            }
+        }
+        None
+    }
+
+    fn render_to_png(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        py.allow_threads(|| {
+            let png = if self.layers.is_empty() {
+                let clear = RendererScene::Clear(ClearScene {
+                    color: [0.0, 0.0, 0.0, 1.0],
+                });
+                self.renderer.render_to_png(&clear)
+            } else {
+                let stack = StackedScatters {
+                    layers: self.layers.as_slice(),
+                };
+                self.renderer.render_to_png(&stack)
+            };
+            png.map_err(renderer_err)
+        })
+    }
+}
+
+fn array2_points(view: ArrayView2<f32>) -> Vec<[f32; 2]> {
+    let n = view.nrows();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push([view[[i, 0]], view[[i, 1]]]);
+    }
+    out
+}
+
+fn array2_rgba(view: ArrayView2<f32>) -> Vec<[f32; 4]> {
+    let n = view.nrows();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push([view[[i, 0]], view[[i, 1]], view[[i, 2]], view[[i, 3]]]);
+    }
+    out
+}
+
+fn array1_sizes(view: ndarray::ArrayView1<f32>) -> Vec<f32> {
+    view.iter().copied().collect()
+}
+
+/// `histogram_2d(xs, ys, bins_x, bins_y, range_x, range_y)` — CPU oracle (`u32` counts), shape `(bins_y, bins_x)`.
+#[pyfunction]
+#[pyo3(signature = (xs, ys, bins_x, bins_y, range_x, range_y))]
+fn histogram_2d(
+    py: Python<'_>,
+    xs: PyReadonlyArray1<f64>,
+    ys: PyReadonlyArray1<f64>,
+    bins_x: usize,
+    bins_y: usize,
+    range_x: (f64, f64),
+    range_y: (f64, f64),
+) -> PyResult<PyObject> {
+    let x_arr = xs.as_array();
+    let y_arr = ys.as_array();
+    let xv = x_arr
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("xs must be contiguous"))?;
+    let yv = y_arr
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("ys must be contiguous"))?;
+    if xv.len() != yv.len() {
+        return Err(PyValueError::new_err("xs and ys must have the same length"));
+    }
+    let grid = histogram_2d_cpu(xv, yv, bins_x, bins_y, (range_x, range_y));
+    let rows = grid.len();
+    let cols = grid.first().map(|r| r.len()).unwrap_or(0);
+    let flat: Vec<u32> = grid.into_iter().flatten().collect();
+    let arr =
+        Array2::from_shape_vec((rows, cols), flat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let array = PyArray2::from_owned_array(py, arr);
+    Ok(array.unbind().into())
+}
+
+/// Python package `phantomat._native` (see `python/pyproject.toml` / maturin `module-name`).
+#[pymodule]
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyScene>()?;
+    let reference = PyModule::new(m.py(), "reference")?;
+    reference.add_function(wrap_pyfunction!(histogram_2d, &reference)?)?;
+    m.add_submodule(&reference)?;
+    Ok(())
+}
