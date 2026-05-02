@@ -104,3 +104,4 @@ coverage.xml
 .ipynb_checkpoints/
 profile_default/
 ipython_config.py
+**/*.proptest-regressions
