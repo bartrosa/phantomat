@@ -2,5 +2,12 @@
   "name": "phantomat-repo",
   "private": true,
   "packageManager": "pnpm@9.15.4",
-  "workspaces": ["packages/*", "examples/web"]
+  "workspaces": ["packages/*", "examples/web"],
+  "scripts": {
+    "format": "prettier --write \"packages/**/*.{ts,tsx,js,jsx,json,md}\" \"examples/web/**/*.{ts,tsx,json,md}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"packages/**/*.{ts,tsx,js,jsx,json,md}\" \"examples/web/**/*.{ts,tsx,json,md}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  }
 }
