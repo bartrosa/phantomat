@@ -245,6 +245,9 @@ pub struct ScatterLayer {
     pub colors: Vec<[f32; 4]>,
     pub sizes: Vec<f32>,
     pub canvas_px: (u32, u32),
+    /// When `true` (default), the layer clears the render target to black before drawing.
+    /// Set to `false` when compositing multiple layers so earlier draws stay visible.
+    clear_before_draw: bool,
     gpu: Mutex<Option<ScatterGpuState>>,
 }
 
@@ -277,6 +280,7 @@ impl ScatterLayer {
             colors,
             sizes,
             canvas_px,
+            clear_before_draw: true,
             gpu: Mutex::new(None),
         }
     }
@@ -312,6 +316,11 @@ impl ScatterLayer {
     /// Updates canvas resolution (e.g. after resize). Must match render target.
     pub fn set_canvas_px(&mut self, canvas_px: (u32, u32)) {
         self.canvas_px = canvas_px;
+    }
+
+    /// When `false`, this layer loads the existing attachment contents instead of clearing to black.
+    pub fn set_clear_before_draw(&mut self, clear: bool) {
+        self.clear_before_draw = clear;
     }
 
     fn build_instances(&self) -> Vec<ScatterInstance> {
@@ -357,14 +366,23 @@ impl Renderable for ScatterLayer {
         let instance_bytes: &[u8] = bytemuck::cast_slice(&instances);
         queue.write_buffer(&gpu.instance_buffer, 0, instance_bytes);
 
+        let load_op = if self.clear_before_draw {
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+        } else {
+            wgpu::LoadOp::Load
+        };
+
         if count == 0 {
+            if !self.clear_before_draw {
+                return;
+            }
             let pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("scatter_clear_only"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: load_op,
                         store: StoreOp::Store,
                     },
                 })],
@@ -382,7 +400,7 @@ impl Renderable for ScatterLayer {
                 view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    load: load_op,
                     store: StoreOp::Store,
                 },
             })],
