@@ -22,14 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install GNU Make (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install make -y
+
       - uses: dtolnay/rust-toolchain@1.88
         with:
           components: rustfmt
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo fmt
-        run: cargo fmt --all -- --check
+      - name: Rust format (make fmt-check-rust)
+        shell: bash
+        run: make fmt-check-rust
 
   clippy:
     name: clippy (${{ matrix.os }})
@@ -41,14 +47,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install GNU Make (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install make -y
+
       - uses: dtolnay/rust-toolchain@1.88
         with:
           components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: cargo clippy (make lint-rust)
+        shell: bash
+        run: make lint-rust
 
   test:
     name: test (${{ matrix.os }})
@@ -60,12 +72,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install GNU Make (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install make -y
+
       - uses: dtolnay/rust-toolchain@1.88
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo test
-        run: cargo test --workspace --exclude phantomat-renderer --exclude phantomat-layers
+      - name: Rust tests without GPU crates (make test-rust)
+        shell: bash
+        run: make test-rust
 
   gpu-test:
     name: gpu (${{ matrix.os }} / ${{ matrix.backend }})
@@ -125,8 +143,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo bench --no-run
-        run: cargo bench --workspace --no-run
+      - name: cargo bench --no-run (make bench-quick)
+        shell: bash
+        run: make bench-quick
 
   wasm-test:
     name: wasm (ubuntu)
