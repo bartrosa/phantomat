@@ -159,18 +159,67 @@ pub struct Scene {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     format: wgpu::TextureFormat,
+    /// `"webgpu"` or `"webgl"` (for E2E / diagnostics).
+    backend_name: String,
     layers: Vec<InnerScatter>,
+}
+
+enum BackendPref {
+    All,
+    WebGpuOnly,
+    GlOnly,
+}
+
+fn instance_backends(pref: BackendPref) -> wgpu::Backends {
+    match pref {
+        BackendPref::All => wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+        BackendPref::WebGpuOnly => wgpu::Backends::BROWSER_WEBGPU,
+        BackendPref::GlOnly => wgpu::Backends::GL,
+    }
+}
+
+fn adapter_backend_label(adapter: &wgpu::Adapter) -> String {
+    match adapter.get_info().backend {
+        wgpu::Backend::Gl => "webgl".to_string(),
+        _ => "webgpu".to_string(),
+    }
 }
 
 #[wasm_bindgen]
 impl Scene {
     /// Async GPU init: picks WebGPU when available, otherwise WebGL.
     pub async fn new(canvas: HtmlCanvasElement) -> Result<Scene, JsValue> {
+        Self::new_with_backend_impl(canvas, BackendPref::All).await
+    }
+
+    /// Init with a hint: `webgpu` (WebGPU only), `webgl` (GL only), or `all` / `auto` (default order).
+    #[wasm_bindgen(js_name = newWithBackend)]
+    pub async fn new_with_backend(
+        canvas: HtmlCanvasElement,
+        backend_preference: &str,
+    ) -> Result<Scene, JsValue> {
+        let pref = match backend_preference {
+            "webgpu" => BackendPref::WebGpuOnly,
+            "webgl" => BackendPref::GlOnly,
+            "all" | "auto" | "" => BackendPref::All,
+            _ => {
+                return Err(JsValue::from_str(
+                    "backend_preference must be 'webgpu', 'webgl', or 'all' / 'auto'",
+                ));
+            }
+        };
+        Self::new_with_backend_impl(canvas, pref).await
+    }
+
+    async fn new_with_backend_impl(
+        canvas: HtmlCanvasElement,
+        pref: BackendPref,
+    ) -> Result<Scene, JsValue> {
         let width = canvas.width().max(1);
         let height = canvas.height().max(1);
 
         let instance = wgpu::Instance::new(InstanceDescriptor {
-            backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
+            backends: instance_backends(pref),
             ..Default::default()
         });
 
@@ -186,6 +235,8 @@ impl Scene {
             })
             .await
             .ok_or_else(|| JsValue::from_str("no suitable GPU adapter (WebGPU/WebGL)"))?;
+
+        let backend_name = adapter_backend_label(&adapter);
 
         let limits = wgpu::Limits::downlevel_webgl2_defaults();
         let (device, queue) = adapter
@@ -226,8 +277,15 @@ impl Scene {
             queue,
             config,
             format,
+            backend_name,
             layers: Vec::new(),
         })
+    }
+
+    /// Active graphics backend for this scene (`webgpu` or `webgl`).
+    #[wasm_bindgen(getter)]
+    pub fn backend(&self) -> String {
+        self.backend_name.clone()
     }
 
     /// Removes all layers (e.g. before replacing IPC payload from Jupyter).
