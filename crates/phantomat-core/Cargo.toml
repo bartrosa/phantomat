@@ -12,3 +12,14 @@ readme = "README.md"
 path = "src/lib.rs"
 
 [dependencies]
+palette = "0.7"
+thiserror = "1"
+
+[dev-dependencies]
+proptest = "1"
+insta = { version = "1", features = ["yaml"] }
+criterion = "0.5"
+
+[[bench]]
+name = "scale_bench"
+harness = false
