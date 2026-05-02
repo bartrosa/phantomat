@@ -39,7 +39,7 @@ This runs `cargo test -p phantomat-renderer --release --test golden` with **`PHA
 ## MSRV / dependencies
 
 - **`wgpu = "23"`** — pinned major; see code comments if upgrading.
-- **`image`** is pinned to **`=0.25.5`** so the workspace MSRV (**1.85**) stays compatible (newer `image` releases raised their MSRV).
+- **`image`** is pinned to **`=0.25.5`** so the workspace MSRV (**1.88**) stays compatible (newer `image` releases raised their MSRV).
 
 ## Optional feature
 
