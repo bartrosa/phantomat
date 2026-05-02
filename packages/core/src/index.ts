@@ -67,3 +67,6 @@ export class SceneBuilder {
 }
 
 export const sceneBuilder = (): SceneBuilder => new SceneBuilder();
+
+/** WASM module init (`wasm-bindgen` default export); convenience default for bundlers. */
+export default init;
