@@ -33,6 +33,11 @@ examples/web/pkg/
 .cursorrules
 .cursor/rules/
 
+# Playwright (e2e) — do not commit HTML report output
+playwright-report/
+test-results/
+blob-report/
+
 # JavaScript / TypeScript (Node, pnpm, tooling)
 node_modules/
 */node_modules/*
