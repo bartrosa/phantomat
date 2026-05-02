@@ -9,7 +9,7 @@ Replace `OWNER` in the badge URL with your GitHub user or organization after you
 
 ## Quick start (Rust)
 
-Requires **Rust 1.82** (see `rust-toolchain.toml`) and [rustup](https://rustup.rs/).
+Requires **Rust 1.85** (see `rust-toolchain.toml`) and [rustup](https://rustup.rs/).
 
 ```bash
 git clone https://github.com/OWNER/phantomat.git
