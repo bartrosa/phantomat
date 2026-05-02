@@ -1,11 +1,14 @@
 //! PyO3 extension: headless [`ScatterLayer`] rendering via [`phantomat_renderer::HeadlessRenderer`].
 
+use std::sync::Arc;
+
 use ndarray::ArrayView2;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use phantomat_layers::ScatterLayer;
 use phantomat_renderer::{ClearScene, HeadlessRenderer, Renderable, Scene as RendererScene};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3_arrow::input::AnyRecordBatch;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 
 /// Renders multiple [`ScatterLayer`]s in order (first clears to black by default).
@@ -97,6 +100,39 @@ impl PyScene {
         }
         self.layers.push(layer);
         Ok(())
+    }
+
+    /// Arrow [`RecordBatch`] / stream with Float32 columns `x`, `y`, `r`, `g`, `b`, `a`, `size` (same `N`).
+    fn add_scatter_arrow(&mut self, input: AnyRecordBatch) -> PyResult<()> {
+        let batch: arrow::record_batch::RecordBatch = match input {
+            AnyRecordBatch::RecordBatch(p) => p.into_inner(),
+            AnyRecordBatch::Stream(s) => {
+                let mut reader = s.into_reader()?;
+                reader
+                    .next()
+                    .transpose()
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?
+                    .ok_or_else(|| PyValueError::new_err("empty Arrow stream"))?
+            }
+        };
+        let arc = Arc::new(batch);
+        let mut layer = ScatterLayer::from_arrow_arc(arc, (self.width, self.height))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if !self.layers.is_empty() {
+            layer.set_clear_before_draw(false);
+        }
+        self.layers.push(layer);
+        Ok(())
+    }
+
+    /// Debug: values-buffer address for column `x` on the last Arrow-backed layer (`None` if N/A).
+    fn debug_values_buffer_addr_x(&self) -> Option<usize> {
+        for layer in self.layers.iter().rev() {
+            if let Some(a) = layer.debug_values_buffer_addr_x() {
+                return Some(a);
+            }
+        }
+        None
     }
 
     fn render_to_png(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
