@@ -28,6 +28,7 @@
     "typecheck": "tsc --noEmit && tsd",
     "test": "vitest run",
     "test:arrow": "vitest run arrow",
+    "test:differential": "vitest run parity_scenes",
     "size": "size-limit"
   },
   "tsd": {
