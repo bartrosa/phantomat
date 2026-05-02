@@ -163,3 +163,95 @@ jobs:
           ls -la pkg/phantomat_wasm_bg.wasm
           gzip -c pkg/phantomat_wasm_bg.wasm | wc -c
           test $(gzip -c pkg/phantomat_wasm_bg.wasm | wc -c) -lt 2000000
+
+  npm-test:
+    name: npm (core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.88
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
+
+      - name: Build phantomat-wasm pkg
+        run: |
+          cd crates/phantomat-wasm
+          wasm-pack build --target web --release
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: @phantomat/core (build, test, typecheck, size)
+        working-directory: packages/core
+        run: |
+          pnpm run build
+          pnpm test
+          pnpm typecheck
+          pnpm size
+
+  python-wheels:
+    name: python (${{ matrix.os }} / ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.88
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Vulkan (Linux / Lavapipe)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build wheel (maturin)
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          working-directory: python
+          args: --release -o ../target/wheels
+          manylinux: "2014"
+          rust-toolchain: "1.88"
+
+      - name: Install wheel + test deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest hypothesis Pillow "numpy>=1.24"
+          python -m pip install target/wheels/phantomat-*.whl
+
+      - name: pytest
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          fi
+          pytest python/tests -v
