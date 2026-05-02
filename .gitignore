@@ -57,6 +57,10 @@ coverage/
 # Built npm packages (Vite/tsc output under workspace packages)
 packages/*/dist/
 
+# Jupyter anywidget bundle (build with scripts/build_widget.sh)
+python/phantomat/static/widget.js
+python/phantomat/static/phantomat_wasm_bg.wasm
+
 # Python
 __pycache__/
 *.py[cod]

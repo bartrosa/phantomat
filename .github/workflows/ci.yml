@@ -229,6 +229,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@1.88
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
 
@@ -241,6 +243,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Install wasm-pack (widget build)
+        run: cargo install wasm-pack --version 0.13.1 --locked
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Jupyter widget assets (maturin include)
+        shell: bash
+        run: bash scripts/build_widget.sh
 
       - name: Build wheel (maturin)
         uses: PyO3/maturin-action@v1
@@ -268,3 +285,50 @@ jobs:
             export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           fi
           pytest python/tests -v
+
+  notebook-test:
+    name: notebook (nbval)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.88
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Jupyter widget static assets
+        run: bash scripts/build_widget.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Vulkan (Lavapipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+
+      - name: maturin develop + pytest nbval
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install maturin pytest nbval jupyter ipykernel
+          cd python && maturin develop --release && cd ..
+          python -m pytest python/tests/test_anywidget_transport.py -v
+          python -m pytest --nbval-lax examples/python/quickstart.ipynb -v

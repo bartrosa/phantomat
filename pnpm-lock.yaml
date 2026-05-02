@@ -45,6 +45,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)(jsdom@25.0.1)
 
+  packages/jupyter:
+    dependencies:
+      '@phantomat/core':
+        specifier: workspace:*
+        version: link:../core
+      apache-arrow:
+        specifier: ^17.0.0
+        version: 17.0.0
+      phantomat-wasm:
+        specifier: file:../../crates/phantomat-wasm/pkg
+        version: file:crates/phantomat-wasm/pkg
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.3
+        version: 6.4.2(@types/node@22.19.17)(jiti@2.6.1)
+
 packages:
 
   '@asamuzakjp/css-color@3.2.0':
