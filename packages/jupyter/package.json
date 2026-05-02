@@ -1,0 +1,19 @@
+{
+  "name": "@phantomat/jupyter",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "anywidget front-end for Phantomat (Jupyter Lab / Notebook 7+).",
+  "scripts": {
+    "build": "vite build && node ./scripts/copy-wasm.mjs"
+  },
+  "dependencies": {
+    "@phantomat/core": "workspace:*",
+    "apache-arrow": "^17.0.0",
+    "phantomat-wasm": "file:../../crates/phantomat-wasm/pkg"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}
