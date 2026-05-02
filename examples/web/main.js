@@ -1,14 +1,11 @@
-import init, { Scene, ScatterLayer } from "./pkg/phantomat_wasm.js";
+import { sceneBuilder } from "@phantomat/core";
 
 async function main() {
-  await init();
-
   const canvas = document.getElementById("c");
   if (!(canvas instanceof HTMLCanvasElement)) {
     throw new Error("missing #c canvas");
   }
 
-  const scene = await Scene.new(canvas);
   const N = 10_000;
   const positions = new Float32Array(N * 2);
   const colors = new Float32Array(N * 4);
@@ -25,7 +22,9 @@ async function main() {
     sizes[i] = 3 + Math.random() * 12;
   }
 
-  scene.add_layer(new ScatterLayer(positions, colors, sizes));
+  const scene = await sceneBuilder()
+    .scatter({ positions, colors, sizes })
+    .build(canvas);
   await scene.render();
 }
 
