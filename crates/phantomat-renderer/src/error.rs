@@ -10,6 +10,7 @@ pub enum RendererError {
     #[error("texture readback failed: {0}")]
     BufferMap(String),
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[error("PNG encode failed: {0}")]
     ImageEncode(#[from] image::ImageError),
 

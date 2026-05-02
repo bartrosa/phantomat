@@ -16,11 +16,13 @@ dx12 = ["wgpu/dx12"]
 [dependencies]
 # Stay on wgpu 23.x until we intentionally migrate (breaking GPU API changes land frequently).
 bytemuck.workspace = true
-# 0.25.10+ raises MSRV beyond workspace `rust-version` (1.85).
-image = { version = "=0.25.5", default-features = false, features = ["png"] }
-pollster = "0.4"
 thiserror = "1"
 wgpu.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# 0.25.10+ raises MSRV beyond workspace `rust-version` (1.88).
+image = { version = "=0.25.5", default-features = false, features = ["png"] }
+pollster = "0.4"
 
 [dev-dependencies]
 bytemuck.workspace = true

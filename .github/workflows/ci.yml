@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.88
         with:
           components: rustfmt
 
@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.88
         with:
           components: clippy
 
@@ -60,7 +60,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.88
 
       - uses: Swatinem/rust-cache@v2
 
@@ -85,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.88
 
       - uses: Swatinem/rust-cache@v2
 
@@ -121,9 +121,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.85
+      - uses: dtolnay/rust-toolchain@1.88
 
       - uses: Swatinem/rust-cache@v2
 
       - name: cargo bench --no-run
         run: cargo bench --workspace --no-run
+
+  wasm-test:
+    name: wasm (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.88
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
+
+      - name: Install browsers (Chrome + Firefox for headless tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser firefox
+
+      - name: wasm-pack test (Chrome)
+        env:
+          CHROME_BIN: /usr/bin/chromium-browser
+        run: wasm-pack test --headless --chrome crates/phantomat-wasm
+
+      - name: wasm-pack test (Firefox)
+        run: wasm-pack test --headless --firefox crates/phantomat-wasm
+
+      - name: wasm-pack release build + gzip size guard (< 2 MiB)
+        run: |
+          cd crates/phantomat-wasm
+          wasm-pack build --target web --release
+          ls -la pkg/phantomat_wasm_bg.wasm
+          gzip -c pkg/phantomat_wasm_bg.wasm | wc -c
+          test $(gzip -c pkg/phantomat_wasm_bg.wasm | wc -c) -lt 2000000
