@@ -2,15 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Phantomat WASM demo</title>
-    <script type="importmap">
-      {
-        "imports": {
-          "@phantomat/core": "../../node_modules/@phantomat/core/dist/index.es.js",
-          "phantomat-wasm": "../../node_modules/phantomat-wasm/phantomat_wasm.js"
-        }
-      }
-    </script>
+    <title>Phantomat — examples web (e2e)</title>
     <style>
       body {
         margin: 0;
@@ -31,12 +23,11 @@
   </head>
   <body>
     <p>
-      Scatter layer (10k points). At repo root: <code>pnpm install</code>,
-      <code>pnpm --filter @phantomat/core build</code>, then serve the repository root so
-      <code>../../node_modules/...</code> in the import map resolves (e.g. open
-      <code>/examples/web/index.html</code> from that server).
+      E2E / dev: <code>?scenario=scatter_100&seed=42&backend=webgpu</code> ·
+      <code>scenario=scatter_1m</code> ·
+      <code>window.phantomatStats</code> after first frame.
     </p>
     <canvas id="c" width="800" height="600"></canvas>
-    <script type="module" src="./main.js"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

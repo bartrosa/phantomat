@@ -1,21 +1,41 @@
-# Phantomat WebAssembly demo
+# Phantomat — examples web (Vite)
 
-Build the wasm package into this directory so `main.js` can import `./pkg/phantomat_wasm.js`:
+Interactive scatter demo used by **Playwright e2e** (`packages/e2e`) with `vite preview` on port **4173**.
 
-```bash
-cd crates/phantomat-wasm
-wasm-pack build --target web --release --out-dir ../../examples/web/pkg
-```
+## Build & preview
 
-Serve locally (from the **repository root** or from this folder; adjust paths if needed):
+From the **repository root** (after `pnpm install` and a wasm build):
 
 ```bash
-cd examples/web
-python -m http.server 8000
+wasm-pack build --target web --release crates/phantomat-wasm
+pnpm --filter @phantomat/core build
+pnpm --filter examples-web build
+pnpm --filter examples-web preview
 ```
 
-Open `http://localhost:8000` — you should see ~10k scatter points on a black canvas (requires **WebGPU** or **WebGL2** in the browser).
+Open `http://127.0.0.1:4173` (strict port).
 
-Release artifact sizes are roughly **~3 MiB** uncompressed `.wasm` (wgpu + layers) and **~900 KiB** gzip-compressed; CI checks gzip stays under **2 MiB**.
+## URL parameters
 
-If the browser blocks ES modules from `file://`, always use the HTTP server above.
+| Query | Meaning |
+| --- | --- |
+| `scenario` | `scatter_100`, `scatter_10k` (default), `scatter_1m` |
+| `seed` | PRNG seed (unsigned int) |
+| `backend` | `auto` (default), `webgpu`, or `webgl` — passed to `Scene.newWithBackend` |
+| `frames` | For `scatter_1m`, number of extra `render()` samples for frame-time mean (default 60) |
+
+After the first frame (and optional multi-frame timing for 1M points), the page sets:
+
+`window.phantomatStats = { ttfr, frameTime, jsHeap?, backend, scenario }`.
+
+## Dev server
+
+```bash
+pnpm --filter examples-web dev
+```
+
+Uses port **5173** by default (`vite.config.ts`).
+
+## Legacy note
+
+The old `examples/web/pkg/` path is gitignored; WASM now comes from `crates/phantomat-wasm/pkg/` via `@phantomat/core` → `phantomat-wasm`.
