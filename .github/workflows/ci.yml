@@ -197,11 +197,21 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate IPC fixture (Arrow regression tests)
+        run: |
+          python -m pip install pyarrow numpy
+          python scripts/generate_fixtures.py
+
       - name: @phantomat/core (build, test, typecheck, size)
         working-directory: packages/core
         run: |
           pnpm run build
           pnpm test
+          pnpm run test:arrow
           pnpm typecheck
           pnpm size
 
@@ -245,8 +255,11 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pytest hypothesis Pillow "numpy>=1.24"
+          python -m pip install pytest hypothesis Pillow "numpy>=1.24" pyarrow
           python -m pip install target/wheels/phantomat-*.whl
+
+      - name: Generate parity fixtures
+        run: python scripts/generate_fixtures.py
 
       - name: pytest
         shell: bash

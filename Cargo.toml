@@ -10,6 +10,7 @@ repository = "https://github.com/OWNER/phantomat"
 rust-version = "1.88"
 
 [workspace.dependencies]
+arrow = { version = "54", default-features = false }
 bytemuck = { version = "1", features = ["derive"] }
 glam = "0.29"
 wgpu = "23"
