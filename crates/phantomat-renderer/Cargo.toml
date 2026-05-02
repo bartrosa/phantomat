@@ -9,7 +9,9 @@ description = "Headless wgpu renderer for Phantomat (PNG export + golden tests).
 readme = "README.md"
 
 [features]
-default = []
+default = ["compute_aggregation"]
+# Disable on backends/toolchains that cannot run atomic storage histograms.
+compute_aggregation = []
 # Windows CI uses DX12 explicitly (see `.github/workflows/ci.yml`).
 dx12 = ["wgpu/dx12"]
 
@@ -27,4 +29,7 @@ pollster = "0.4"
 [dev-dependencies]
 bytemuck.workspace = true
 dssim = "3"
+phantomat-core = { path = "../phantomat-core" }
+proptest = "1"
+rand = "0.8"
 rgb = "0.8"
