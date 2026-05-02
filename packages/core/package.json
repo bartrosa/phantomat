@@ -1,0 +1,43 @@
+{
+  "name": "@phantomat/core",
+  "version": "0.0.1",
+  "private": false,
+  "type": "module",
+  "description": "TypeScript wrapper over phantomat-wasm (Scene, scatter layers, builder API).",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.es.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "phantomat-wasm": "file:../../crates/phantomat-wasm/pkg"
+  },
+  "scripts": {
+    "build": "vite build && node ./scripts/copy-wasm.mjs",
+    "typecheck": "tsc --noEmit && tsd",
+    "test": "vitest run",
+    "size": "size-limit"
+  },
+  "tsd": {
+    "directory": "test-d"
+  },
+  "devDependencies": {
+    "@size-limit/file": "^11.2.0",
+    "@types/node": "^22.10.0",
+    "size-limit": "^11.2.0",
+    "tsd": "^0.31.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vite-plugin-dts": "^4.4.0",
+    "vitest": "^2.1.8"
+  }
+}

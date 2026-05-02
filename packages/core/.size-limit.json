@@ -1,0 +1,12 @@
+[
+  {
+    "path": "dist/index.es.js",
+    "limit": "30 KB",
+    "gzip": true
+  },
+  {
+    "path": "dist/phantomat_wasm_bg.wasm",
+    "limit": "1 MB",
+    "gzip": true
+  }
+]
