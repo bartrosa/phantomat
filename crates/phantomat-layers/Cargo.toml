@@ -12,9 +12,11 @@ default = []
 dx12 = ["phantomat-renderer/dx12"]
 
 [dependencies]
+arrow.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
 phantomat-renderer = { path = "../phantomat-renderer" }
+thiserror = "1"
 wgpu.workspace = true
 
 [dev-dependencies]
