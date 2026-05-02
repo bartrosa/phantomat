@@ -65,7 +65,49 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude phantomat-renderer
+
+  gpu-test:
+    name: gpu (${{ matrix.os }} / ${{ matrix.backend }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            backend: lavapipe
+          - os: macos-latest
+            backend: metal
+          - os: windows-latest
+            backend: warp
+    runs-on: ${{ matrix.os }}
+    env:
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.85
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Mesa Lavapipe (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+
+      - name: cargo test phantomat-renderer (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: cargo test -p phantomat-renderer --release
+
+      - name: cargo test phantomat-renderer (macOS)
+        if: matrix.os == 'macos-latest'
+        run: cargo test -p phantomat-renderer --release
+
+      - name: cargo test phantomat-renderer (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cargo test -p phantomat-renderer --release --features dx12
 
   bench-check:
     name: bench (--no-run)
