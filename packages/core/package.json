@@ -19,12 +19,15 @@
   ],
   "sideEffects": false,
   "dependencies": {
+    "apache-arrow": "^17.0.0",
+    "arrow-js-ffi": "^0.4.3",
     "phantomat-wasm": "file:../../crates/phantomat-wasm/pkg"
   },
   "scripts": {
     "build": "vite build && node ./scripts/copy-wasm.mjs",
     "typecheck": "tsc --noEmit && tsd",
     "test": "vitest run",
+    "test:arrow": "vitest run arrow",
     "size": "size-limit"
   },
   "tsd": {

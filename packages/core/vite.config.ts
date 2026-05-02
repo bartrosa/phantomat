@@ -29,10 +29,11 @@ export default defineConfig({
       },
     },
     rollupOptions: {
-      external: ["phantomat-wasm"],
+      external: ["phantomat-wasm", "apache-arrow", "arrow-js-ffi"],
       output: {
         globals: {
           "phantomat-wasm": "PhantomatWasm",
+          "apache-arrow": "Arrow",
         },
       },
     },

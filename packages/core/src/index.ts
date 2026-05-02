@@ -2,6 +2,13 @@ import init, { ScatterLayer, Scene } from "phantomat-wasm";
 
 export { init, Scene, ScatterLayer };
 
+export {
+  parseRecordBatch,
+  scatterArrowColumnBuffers,
+  scatterFromArrow,
+  scatterFromArrowViaFloat32Arrays,
+} from "./arrow.js";
+
 /** Typed scatter layer inputs (mirrors raw WASM constructor before GPU upload). */
 export interface ScatterOpts {
   positions: Float32Array;
