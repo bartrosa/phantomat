@@ -71,7 +71,7 @@ jobs:
             echo "| chromium-webgl | \`--disable-features=WebGPU\` |"
             echo "| firefox-webgpu | Default Firefox |"
             echo "| firefox-webgl | \`dom.webgpu.enabled\` = false |"
-            echo "| webkit | Desktop Safari |"
+            echo "| webkit | Desktop Safari (off by default — set \`E2E_WEBKIT=1\` locally if needed) |"
             echo ""
             echo "Compare **TTFR / frame / heap** against \`packages/e2e/budgets.json\` in the run log above."
             echo "Do not use \`--update-snapshots\` in CI; update PNG baselines locally with \`UPDATE_BASELINES=1\`."

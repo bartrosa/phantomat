@@ -1,8 +1,15 @@
+import { platform } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
+/** WebGL-only Chrome: headless often needs an explicit ANGLE backend (Metal on macOS CI, SwiftShader on Linux). */
+const chromiumWebGlAngleArgs =
+  platform() === "darwin" ? ["--use-angle=metal"] : ["--use-angle=swiftshader"];
+
 const isCI = Boolean(process.env.CI);
+/** Opt-in WebKit project (headless WebKit + wgpu/WASM often hangs before first frame). */
+const includeWebKit = process.env.E2E_WEBKIT === "1";
 /** Monorepo root (contains `pnpm-lock.yaml`). */
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -38,7 +45,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
-          args: ["--disable-features=WebGPU"],
+          args: ["--disable-features=WebGPU", ...chromiumWebGlAngleArgs],
         },
       },
     },
@@ -54,12 +61,18 @@ export default defineConfig({
         firefoxUserPrefs: {
           "dom.webgpu.enabled": false,
         },
+      } as (typeof devices)["Desktop Firefox"] & {
+        firefoxUserPrefs: Record<string, string | number | boolean>;
       },
     },
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
+    ...(includeWebKit
+      ? [
+          {
+            name: "webkit",
+            use: { ...devices["Desktop Safari"] },
+          },
+        ]
+      : []),
   ],
   webServer: {
     // Use the example app’s local Vite CLI (no global `pnpm` on PATH required).

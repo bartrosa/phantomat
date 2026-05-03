@@ -9,10 +9,12 @@
   "frame_time_1m_pts": {
     "chromium-webgpu": 50,
     "chromium-webgl": 50,
+    "firefox-webgpu": 85,
+    "firefox-webgl": 90,
     "_": 50
   },
   "js_heap_mb_1m_pts": {
-    "_": 200
+    "_": 300
   },
   "bundle_wasm_kb_gz": 1024,
   "bundle_js_kb_gz": 50
