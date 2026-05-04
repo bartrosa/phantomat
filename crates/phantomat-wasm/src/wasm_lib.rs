@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 use wgpu::{
-    CommandEncoderDescriptor, InstanceDescriptor, RequestAdapterOptions, SurfaceError,
+    AdapterInfo, CommandEncoderDescriptor, InstanceDescriptor, RequestAdapterOptions, SurfaceError,
     TextureViewDescriptor,
 };
 
@@ -159,6 +159,8 @@ pub struct Scene {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     format: wgpu::TextureFormat,
+    /// Snapshot from [`wgpu::Adapter::get_info`] at device creation (browser WebGPU often reports empty fields).
+    adapter_info: AdapterInfo,
     /// `"webgpu"` or `"webgl"` (for E2E / diagnostics).
     backend_name: String,
     layers: Vec<InnerScatter>,
@@ -183,6 +185,58 @@ fn adapter_backend_label(adapter: &wgpu::Adapter) -> String {
         wgpu::Backend::Gl => "webgl".to_string(),
         _ => "webgpu".to_string(),
     }
+}
+
+fn now_ms() -> f64 {
+    web_sys::window()
+        .and_then(|w| w.performance())
+        .map(|p| p.now())
+        .unwrap_or(0.0)
+}
+
+fn device_type_str(dt: wgpu::DeviceType) -> &'static str {
+    match dt {
+        wgpu::DeviceType::Cpu => "cpu",
+        wgpu::DeviceType::DiscreteGpu => "discrete",
+        wgpu::DeviceType::IntegratedGpu => "integrated",
+        wgpu::DeviceType::VirtualGpu => "virtual",
+        wgpu::DeviceType::Other => "other",
+    }
+}
+
+fn adapter_info_to_js(info: &AdapterInfo) -> JsValue {
+    let obj = js_sys::Object::new();
+    let backend = match info.backend {
+        wgpu::Backend::Gl => "webgl2",
+        wgpu::Backend::BrowserWebGpu => "browser-webgpu",
+        _ => info.backend.to_str(),
+    };
+    let _ = js_sys::Reflect::set(&obj, &"wgpuBackend".into(), &backend.into());
+    let _ = js_sys::Reflect::set(&obj, &"name".into(), &info.name.as_str().into());
+    let _ = js_sys::Reflect::set(
+        &obj,
+        &"vendorId".into(),
+        &format!("0x{:x}", info.vendor).into(),
+    );
+    let _ = js_sys::Reflect::set(
+        &obj,
+        &"deviceId".into(),
+        &format!("0x{:x}", info.device).into(),
+    );
+    let _ = js_sys::Reflect::set(
+        &obj,
+        &"deviceType".into(),
+        &device_type_str(info.device_type).into(),
+    );
+    let _ = js_sys::Reflect::set(&obj, &"driver".into(), &info.driver.as_str().into());
+    let _ = js_sys::Reflect::set(
+        &obj,
+        &"driverInfo".into(),
+        &info.driver_info.as_str().into(),
+    );
+    let is_fallback = matches!(info.device_type, wgpu::DeviceType::Cpu);
+    let _ = js_sys::Reflect::set(&obj, &"isFallback".into(), &is_fallback.into());
+    obj.into()
 }
 
 #[wasm_bindgen]
@@ -237,6 +291,7 @@ impl Scene {
             .ok_or_else(|| JsValue::from_str("no suitable GPU adapter (WebGPU/WebGL)"))?;
 
         let backend_name = adapter_backend_label(&adapter);
+        let adapter_info = adapter.get_info();
 
         let limits = wgpu::Limits::downlevel_webgl2_defaults();
         let (device, queue) = adapter
@@ -277,6 +332,7 @@ impl Scene {
             queue,
             config,
             format,
+            adapter_info,
             backend_name,
             layers: Vec::new(),
         })
@@ -286,6 +342,12 @@ impl Scene {
     #[wasm_bindgen(getter)]
     pub fn backend(&self) -> String {
         self.backend_name.clone()
+    }
+
+    /// [`wgpu::Adapter::get_info`] snapshot; browser WebGPU may return empty strings (enrich from `navigator.gpu` in JS).
+    #[wasm_bindgen(js_name = getAdapterInfo)]
+    pub fn get_adapter_info(&self) -> JsValue {
+        adapter_info_to_js(&self.adapter_info)
     }
 
     /// Removes all layers (e.g. before replacing IPC payload from Jupyter).
@@ -309,6 +371,16 @@ impl Scene {
 
     /// Submits one frame: draws all layers in order, then presents.
     pub async fn render(&self) -> Result<(), JsValue> {
+        self.render_timed(false).await.map(|_| ())
+    }
+
+    /// Same as [`Scene::render`] plus encode/submit/present timings (ms).
+    #[wasm_bindgen(js_name = renderWithStats)]
+    pub async fn render_with_stats(&self) -> Result<JsValue, JsValue> {
+        self.render_timed(true).await
+    }
+
+    async fn render_timed(&self, with_stats: bool) -> Result<JsValue, JsValue> {
         let texture = match self.surface.get_current_texture() {
             Ok(t) => t,
             Err(SurfaceError::Lost | SurfaceError::Outdated) => {
@@ -321,6 +393,7 @@ impl Scene {
         };
 
         let view = texture.texture.create_view(&TextureViewDescriptor::default());
+        let t0 = if with_stats { now_ms() } else { 0.0 };
         let mut encoder = self
             .device
             .create_command_encoder(&CommandEncoderDescriptor {
@@ -337,11 +410,34 @@ impl Scene {
             );
         }
 
-        self.queue
-            .submit(std::iter::once(encoder.finish()));
+        let cmd_buf = encoder.finish();
+        let t1 = if with_stats { now_ms() } else { 0.0 };
+        self.queue.submit(std::iter::once(cmd_buf));
+        let t2 = if with_stats { now_ms() } else { 0.0 };
         texture.present();
+        let t3 = if with_stats { now_ms() } else { 0.0 };
 
-        Ok(())
+        if with_stats {
+            let obj = js_sys::Object::new();
+            let _ = js_sys::Reflect::set(
+                &obj,
+                &"encodeMs".into(),
+                &(t1 - t0).into(),
+            );
+            let _ = js_sys::Reflect::set(
+                &obj,
+                &"submitMs".into(),
+                &(t2 - t1).into(),
+            );
+            let _ = js_sys::Reflect::set(
+                &obj,
+                &"presentMs".into(),
+                &(t3 - t2).into(),
+            );
+            Ok(obj.into())
+        } else {
+            Ok(JsValue::UNDEFINED)
+        }
     }
 
     /// Swapchain width in pixels.
