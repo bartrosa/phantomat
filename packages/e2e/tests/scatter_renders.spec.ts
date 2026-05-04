@@ -6,10 +6,14 @@ import { expect, test } from "@playwright/test";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
+import { urlForProject } from "./_url";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test("scatter 100 points renders correctly", async ({ page }, testInfo) => {
-  await page.goto("/?scenario=scatter_100&seed=42");
+  await page.goto(
+    urlForProject(testInfo, { scenario: "scatter_100", seed: 42 }),
+  );
 
   await page.waitForFunction(() => {
     const s = (

@@ -1,9 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+import { urlForProject } from "./_url";
+
 test("falls back to WebGL2 when WebGPU disabled (or uses WebGPU when available)", async ({
   page,
-}) => {
-  await page.goto("/?scenario=scatter_100&seed=1");
+}, testInfo) => {
+  await page.goto(
+    urlForProject(testInfo, { scenario: "scatter_100", seed: 1 }),
+  );
   await page.waitForFunction(() => {
     const s = (
       window as unknown as {

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
-/** WebGL-only Chrome: headless often needs an explicit ANGLE backend (Metal on macOS CI, SwiftShader on Linux). */
+/** Headless Chrome needs an explicit ANGLE backend for reliable WebGL2 (wgpu GL); not related to WebGPU flags. */
 const chromiumWebGlAngleArgs =
   platform() === "darwin" ? ["--use-angle=metal"] : ["--use-angle=swiftshader"];
 
@@ -21,7 +21,8 @@ export default defineConfig({
   testDir: "tests",
   fullyParallel: true,
   forbidOnly: isCI,
-  retries: isCI ? 1 : 0,
+  /* Retries hide steady-state perf regressions; cold/warm split + median metrics replace flake retries. */
+  retries: 0,
   workers: isCI ? 1 : undefined,
   reporter: [["list"], ["html", { open: "never" }]],
   timeout: 300_000,
@@ -45,24 +46,33 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         launchOptions: {
-          args: ["--disable-features=WebGPU", ...chromiumWebGlAngleArgs],
+          args: chromiumWebGlAngleArgs,
         },
       },
     },
     {
       name: "firefox-webgpu",
       use: { ...devices["Desktop Firefox"] },
+      metadata: {
+        perfBudgetsApply: false,
+        perfBudgetsReason:
+          "Firefox WebGPU/WebGL on hosted runners is often software-throttled; TTFR/frame/heap budgets run on chromium-* only — see packages/e2e/README.md",
+      },
     },
     {
       name: "firefox-webgl",
       use: {
         ...devices["Desktop Firefox"],
-        // WebGL-only (no WebGPU) for fallback coverage
         firefoxUserPrefs: {
           "dom.webgpu.enabled": false,
         },
       } as (typeof devices)["Desktop Firefox"] & {
         firefoxUserPrefs: Record<string, string | number | boolean>;
+      },
+      metadata: {
+        perfBudgetsApply: false,
+        perfBudgetsReason:
+          "Firefox WebGPU/WebGL on hosted runners is often software-throttled; TTFR/frame/heap budgets run on chromium-* only — see packages/e2e/README.md",
       },
     },
     ...(includeWebKit
@@ -75,7 +85,6 @@ export default defineConfig({
       : []),
   ],
   webServer: {
-    // Use the example app’s local Vite CLI (no global `pnpm` on PATH required).
     command: "npx vite preview --port 4173 --strictPort",
     cwd: path.join(repoRoot, "examples", "web"),
     url: "http://localhost:4173",
