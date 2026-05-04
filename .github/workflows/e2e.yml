@@ -73,9 +73,17 @@ jobs:
             echo "| firefox-webgl | \`dom.webgpu.enabled\` = false |"
             echo "| webkit | Desktop Safari (off by default — set \`E2E_WEBKIT=1\` locally if needed) |"
             echo ""
-            echo "Compare **TTFR / frame / heap** against \`packages/e2e/budgets.json\` in the run log above."
+            echo "Compare **TTFR / frame / heap** (chromium projects only) against \`packages/e2e/budgets.json\` in the run log above. Firefox perf budgets are skipped by design."
             echo "Do not use \`--update-snapshots\` in CI; update PNG baselines locally with \`UPDATE_BASELINES=1\`."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-diagnostics
+          path: packages/e2e/test-results/diagnostics/
+          if-no-files-found: ignore
+          retention-days: 30
 
       - uses: actions/upload-artifact@v4
         if: failure()
