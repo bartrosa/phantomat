@@ -62,9 +62,14 @@ On platforms/browsers you cannot run (e.g. WebKit on Linux), CI on **macOS** can
 
 Targets are in `budgets.json` (`ttfr_1m_pts`, `frame_time_1m_pts`, `js_heap_mb_1m_pts`, wasm gzip).
 
-The repo uses **generous TTFR ceilings** (milliseconds) for `scatter_1m` until the WASM path is tuned; tighten numbers toward product targets over time. Frame-time budgets use **50 ms** defaults so headless runs stay stable; adjust per GPU.
+**GPU budgets (TTFR, steady-state median frame time, JS heap) run only on `chromium-webgpu` and `chromium-webgl`.**  
+Firefox Playwright projects set `metadata.perfBudgetsApply: false` because WebGPU/WebGL on GitHub-hosted runners is often software-throttled; comparing Firefox frame times to Chromium would mix unlike-for-unlike. Firefox still runs **visual** (`scatter_renders`) and **fallback** (`webgl_fallback`) tests.
 
-On **CI**, `scatter_1m` uses **10** rolling frames instead of 60 to keep job time bounded (`perf_budgets.spec.ts` reads `process.env.CI`).
+Steady-state frame time is measured in Playwright after **10 warmup frames** and uses the **median** of **60** frame samples (no CI shortcut — the demo loads with `frames=0` so the page does not pre-average frames).
+
+Adapter strings for debugging come from `window.phantomatStats.adapter` (WASM `getAdapterInfo()` plus `navigator.gpu.requestAdapterInfo()` when available). `tests/diagnostics.spec.ts` writes `test-results/diagnostics/<project>.json` when you run the full suite.
+
+Tune budgets using local runs (`pnpm --filter e2e test`) and the diagnostics artifacts; avoid raising caps only to silence failures.
 
 ### Chromium / WebGPU (headless)
 
