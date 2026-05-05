@@ -9,12 +9,12 @@ def from_arrow(obj, width: int = 512, height: int = 512):
 
     Accepts PyArrow ``RecordBatch`` or ``Table``, Polars, DuckDB-registered objects, etc.,
     without listing ``pyarrow`` as a required runtime dependency of the wheel (optional for apps).
+
+    Chunked ``Table``s with multiple record batches (Parquet row groups, polars
+    conversions, ``concat_tables``, …) are passed through in full: the Rust
+    binding concatenates every batch from the underlying stream so no rows are
+    silently dropped (previously only the first batch was rendered).
     """
     s = Scene(width, height)
-    if hasattr(obj, "to_batches"):
-        batches = obj.to_batches()
-        if not batches:
-            raise ValueError("empty Arrow table")
-        obj = batches[0]
     s.add_scatter_arrow(obj)
     return s

@@ -104,16 +104,30 @@ impl PyScene {
     }
 
     /// Arrow [`RecordBatch`] / stream with Float32 columns `x`, `y`, `r`, `g`, `b`, `a`, `size` (same `N`).
+    ///
+    /// Multi-batch streams (chunked PyArrow `Table`s, Parquet files with several
+    /// row groups, etc.) are concatenated into a single batch so all rows are
+    /// rendered. Previously only the first batch was consumed, silently dropping
+    /// the rest.
     fn add_scatter_arrow(&mut self, input: AnyRecordBatch) -> PyResult<()> {
         let batch: arrow::record_batch::RecordBatch = match input {
             AnyRecordBatch::RecordBatch(p) => p.into_inner(),
             AnyRecordBatch::Stream(s) => {
                 let mut reader = s.into_reader()?;
-                reader
-                    .next()
-                    .transpose()
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?
-                    .ok_or_else(|| PyValueError::new_err("empty Arrow stream"))?
+                let schema = reader.schema();
+                let mut batches: Vec<arrow::record_batch::RecordBatch> = Vec::new();
+                for b in reader.by_ref() {
+                    batches.push(b.map_err(|e| PyValueError::new_err(e.to_string()))?);
+                }
+                if batches.is_empty() {
+                    return Err(PyValueError::new_err("empty Arrow stream"));
+                }
+                if batches.len() == 1 {
+                    batches.into_iter().next().expect("checked non-empty")
+                } else {
+                    arrow::compute::concat_batches(&schema, &batches)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?
+                }
             }
         };
         let arc = Arc::new(batch);
@@ -124,6 +138,11 @@ impl PyScene {
         }
         self.layers.push(layer);
         Ok(())
+    }
+
+    /// Debug / test helper: total number of points across every queued layer.
+    fn debug_total_points(&self) -> usize {
+        self.layers.iter().map(ScatterLayer::len).sum()
     }
 
     /// Debug: values-buffer address for column `x` on the last Arrow-backed layer (`None` if N/A).
