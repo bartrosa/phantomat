@@ -31,6 +31,53 @@ function assertUsizeAlignedF32(ptr: number): void {
   }
 }
 
+/**
+ * Returns a contiguous `Float32Array` for the named column. Single-chunk columns are zero-copy;
+ * multi-chunk (chunked) columns — produced by Arrow IPC streams with more than one record batch —
+ * are concatenated into a freshly allocated array so callers don't silently render only the first
+ * batch.
+ */
+export function flattenFloat32Column(
+  table: Table,
+  name: string,
+  expectedLength: number,
+): Float32Array {
+  const col = table.getChild(name);
+  if (!col) {
+    throw new Error(`missing column ${name}`);
+  }
+  const chunks = col.data;
+  if (chunks.length === 0) {
+    throw new Error(`column ${name}: no data chunks`);
+  }
+  if (chunks.length === 1) {
+    const v = chunks[0]!.values as Float32Array;
+    if (v.length !== expectedLength) {
+      throw new Error(
+        `column ${name}: expected length ${expectedLength}, got ${v.length}`,
+      );
+    }
+    return v;
+  }
+  let total = 0;
+  for (const d of chunks) {
+    total += (d.values as Float32Array).length;
+  }
+  if (total !== expectedLength) {
+    throw new Error(
+      `column ${name}: chunk total ${total} !== numRows ${expectedLength}`,
+    );
+  }
+  const out = new Float32Array(expectedLength);
+  let off = 0;
+  for (const d of chunks) {
+    const v = d.values as Float32Array;
+    out.set(v, off);
+    off += v.length;
+  }
+  return out;
+}
+
 function extractScatterColumns(table: Table): { n: number; cols: Float32Array[] } {
   const n = table.numRows;
   if (n === 0) {
@@ -38,15 +85,7 @@ function extractScatterColumns(table: Table): { n: number; cols: Float32Array[] 
   }
   const cols: Float32Array[] = [];
   for (const name of COLS) {
-    const col = table.getChild(name);
-    if (!col) {
-      throw new Error(`missing column ${name}`);
-    }
-    const v = col.data[0]!.values as Float32Array;
-    if (v.length !== n) {
-      throw new Error(`column ${name}: expected length ${n}, got ${v.length}`);
-    }
-    cols.push(v);
+    cols.push(flattenFloat32Column(table, name, n));
   }
   return { n, cols };
 }
