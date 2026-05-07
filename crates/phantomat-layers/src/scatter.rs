@@ -35,6 +35,31 @@ struct WasmRawCols {
     s: *const f32,
 }
 
+/// Owns a single contiguous block in **wasm linear memory** that was allocated via
+/// `wasm-bindgen`'s `__wbindgen_malloc` (which routes through Rust's global allocator).
+/// On drop, the block is freed with the matching [`Layout`]. This is the lifetime hook
+/// for the column pointers stored in [`WasmRawCols`].
+#[cfg(target_arch = "wasm32")]
+struct WasmBlock {
+    base: *mut u8,
+    size: usize,
+    align: usize,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for WasmBlock {
+    fn drop(&mut self) {
+        if !self.base.is_null() && self.size > 0 {
+            // Safety: matches the `Layout` used by `__wbindgen_malloc(size, align)` —
+            // both go through `alloc::alloc::{alloc, dealloc}` in wasm-bindgen 0.2.
+            unsafe {
+                let layout = std::alloc::Layout::from_size_align_unchecked(self.size, self.align);
+                std::alloc::dealloc(self.base, layout);
+            }
+        }
+    }
+}
+
 /// Per-point instance data. Layout matches WGSL `min` sizes and 16-byte rules for the uniform
 /// block is separate; instance stride is 48 bytes.
 #[repr(C)]
@@ -271,6 +296,10 @@ pub struct ScatterLayer {
     /// WebAssembly: read columns from pointers into wasm linear memory.
     #[cfg(target_arch = "wasm32")]
     wasm_raw: Option<WasmRawCols>,
+    /// Owns the wasm-malloc block backing [`Self::wasm_raw`] when this layer was built
+    /// via [`Self::from_arrow_block`]. Dropping the layer frees the block.
+    #[cfg(target_arch = "wasm32")]
+    wasm_block: Option<WasmBlock>,
 }
 
 impl ScatterLayer {
@@ -307,6 +336,8 @@ impl ScatterLayer {
             arrow_batch: None,
             #[cfg(target_arch = "wasm32")]
             wasm_raw: None,
+            #[cfg(target_arch = "wasm32")]
+            wasm_block: None,
         }
     }
 
@@ -330,6 +361,8 @@ impl ScatterLayer {
             arrow_batch: Some(batch),
             #[cfg(target_arch = "wasm32")]
             wasm_raw: None,
+            #[cfg(target_arch = "wasm32")]
+            wasm_block: None,
         })
     }
 
@@ -366,6 +399,55 @@ impl ScatterLayer {
                 b,
                 a,
                 s: size,
+            }),
+            wasm_block: None,
+        }
+    }
+
+    /// WebAssembly: builds from a single contiguous **column-major** block in wasm linear
+    /// memory holding seven Float32 columns of length `n` (layout: `x | y | r | g | b | a | size`).
+    /// The layer **takes ownership of the block** and frees it via [`std::alloc::dealloc`] when
+    /// dropped — pair this with `__wbindgen_malloc(total_bytes, align)` on the JS side so the
+    /// allocation does not leak across repeated widget updates.
+    ///
+    /// # Safety
+    /// * `base` must point to `total_bytes` valid bytes in wasm linear memory.
+    /// * `total_bytes` must equal `n * 7 * size_of::<f32>()`.
+    /// * `align` must match the alignment passed to `__wbindgen_malloc` (4 for `f32` columns).
+    /// * The caller must transfer ownership exactly once: do **not** also pass the same block
+    ///   to another `from_arrow_block` / `from_raw_f32_columns` call.
+    #[cfg(target_arch = "wasm32")]
+    pub unsafe fn from_arrow_block(
+        base: *mut u8,
+        total_bytes: usize,
+        align: usize,
+        n: usize,
+        canvas_px: (u32, u32),
+    ) -> Self {
+        let base_f32 = base as *const f32;
+        let cols = WasmRawCols {
+            n,
+            x: base_f32,
+            y: base_f32.add(n),
+            r: base_f32.add(2 * n),
+            g: base_f32.add(3 * n),
+            b: base_f32.add(4 * n),
+            a: base_f32.add(5 * n),
+            s: base_f32.add(6 * n),
+        };
+        Self {
+            positions: Vec::new(),
+            colors: Vec::new(),
+            sizes: Vec::new(),
+            canvas_px,
+            clear_before_draw: true,
+            gpu: Mutex::new(None),
+            arrow_batch: None,
+            wasm_raw: Some(cols),
+            wasm_block: Some(WasmBlock {
+                base,
+                size: total_bytes,
+                align,
             }),
         }
     }
@@ -420,6 +502,8 @@ impl ScatterLayer {
         #[cfg(target_arch = "wasm32")]
         {
             self.wasm_raw = None;
+            // Drop the owned wasm-malloc block (if any) so its memory is released.
+            self.wasm_block = None;
         }
     }
 
