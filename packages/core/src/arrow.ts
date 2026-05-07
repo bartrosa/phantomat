@@ -53,8 +53,12 @@ function extractScatterColumns(table: Table): { n: number; cols: Float32Array[] 
 
 /**
  * Seven-column scatter layer using **wasm linear memory**: one allocation, column-major `f32`
- * blocks, then [`ScatterLayer.fromArrowPtrs`]. This avoids per-element JS↔wasm copies in the
+ * blocks, then [`ScatterLayer.fromArrowBlock`]. This avoids per-element JS↔wasm copies in the
  * legacy [`scatterFromArrowViaFloat32Arrays`] path (still available for compatibility).
+ *
+ * **Ownership:** the wasm-malloc block is handed off to the returned [`ScatterLayer`] which
+ * frees it when dropped (via Rust `Drop`). Repeated `scatterFromArrow` calls — e.g. each
+ * Jupyter widget update — therefore do **not** leak the previous allocation.
  */
 export async function scatterFromArrow(table: Table): Promise<ScatterLayer> {
   const wasm = await loadWasmInit();
@@ -62,19 +66,21 @@ export async function scatterFromArrow(table: Table): Promise<ScatterLayer> {
   const strideBytes = n * 4;
   const totalBytes = strideBytes * 7;
   const malloc = wasm.__wbindgen_export;
-  const base = malloc(totalBytes, 4) >>> 0;
+  const align = 4;
+  const base = malloc(totalBytes, align) >>> 0;
   if (base === 0) {
     throw new Error("wasm alloc failed for Arrow columns");
   }
+  // After malloc, refresh the Float32 view in case linear memory was grown.
   const mem = new Float32Array(wasm.memory.buffer, base, 7 * n);
   for (let i = 0; i < 7; i++) {
     mem.set(cols[i]!, i * n);
   }
-  const off = (i: number) => base + i * strideBytes;
   for (let i = 0; i < 7; i++) {
-    assertUsizeAlignedF32(off(i));
+    assertUsizeAlignedF32(base + i * strideBytes);
   }
-  return ScatterLayer.fromArrowPtrs(n, off(0), off(1), off(2), off(3), off(4), off(5), off(6));
+  // ScatterLayer takes ownership of the [base, base+totalBytes) block and frees it on drop.
+  return ScatterLayer.fromArrowBlock(n, base, totalBytes, align);
 }
 
 /** Legacy path: copies via wasm-bindgen [`Float32Array`] handles (kept for compatibility). */

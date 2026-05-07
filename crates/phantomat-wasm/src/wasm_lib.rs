@@ -62,7 +62,10 @@ impl ScatterLayer {
     /// Seven column-major `Float32` buffers in wasm linear memory (`n` points each).
     ///
     /// # Safety
-    /// Pointers must be valid for `n` floats until this layer is consumed by [`Scene::add_layer`].
+    /// Pointers must be valid for `n` floats until this layer is consumed by [`Scene::add_layer`]
+    /// **and** the layer is dropped. This entry-point does **not** take ownership of any
+    /// underlying allocation — prefer [`ScatterLayer::from_arrow_block`] for inputs sourced from
+    /// `__wbindgen_malloc`, which frees the block on drop.
     #[wasm_bindgen(js_name = fromArrowPtrs)]
     pub unsafe fn from_arrow_ptrs(
         n: u32,
@@ -97,6 +100,55 @@ impl ScatterLayer {
             size_ptr,
             (1, 1),
         );
+        Ok(Self {
+            inner: Some(inner),
+        })
+    }
+
+    /// Single contiguous `Float32` block in wasm linear memory holding seven column-major
+    /// columns (`x | y | r | g | b | a | size`, `n` floats each, total `n * 7 * 4` bytes).
+    ///
+    /// Pair with `__wbindgen_malloc(total_bytes, align)` on the JS side: the resulting layer
+    /// **takes ownership** of the block and frees it (via the matching `Layout`) when dropped.
+    /// Using [`Self::from_arrow_ptrs`] instead leaks the JS-side allocation across repeated
+    /// Jupyter / `scatterFromArrow` calls.
+    ///
+    /// # Safety
+    /// `base` must reference exactly `total_bytes` bytes (`>= n * 7 * 4`) allocated by
+    /// `__wbindgen_malloc(total_bytes, align)`. `align` must match (4 for f32 columns).
+    /// The caller must not keep any other Rust-side reference to this block.
+    #[wasm_bindgen(js_name = fromArrowBlock)]
+    pub unsafe fn from_arrow_block(
+        n: u32,
+        base: *mut u8,
+        total_bytes: u32,
+        align: u32,
+    ) -> Result<ScatterLayer, JsValue> {
+        let n = usize::try_from(n).map_err(|_| JsValue::from_str("n too large"))?;
+        let total_bytes = usize::try_from(total_bytes)
+            .map_err(|_| JsValue::from_str("total_bytes too large"))?;
+        let align =
+            usize::try_from(align).map_err(|_| JsValue::from_str("align too large"))?;
+        let f32_size = std::mem::size_of::<f32>();
+        let expected = n
+            .checked_mul(7)
+            .and_then(|v| v.checked_mul(f32_size))
+            .ok_or_else(|| JsValue::from_str("n * 7 * 4 overflow"))?;
+        if total_bytes != expected {
+            return Err(JsValue::from_str(
+                "total_bytes must equal n * 7 * size_of::<f32>()",
+            ));
+        }
+        if n > 0 && base.is_null() {
+            return Err(JsValue::from_str("null block pointer"));
+        }
+        if !align.is_power_of_two() || align < f32_size {
+            return Err(JsValue::from_str("align must be a power of two >= 4"));
+        }
+        if (base as usize) % align != 0 {
+            return Err(JsValue::from_str("block pointer not properly aligned"));
+        }
+        let inner = InnerScatter::from_arrow_block(base, total_bytes, align, n, (1, 1));
         Ok(Self {
             inner: Some(inner),
         })
