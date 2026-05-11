@@ -108,12 +108,20 @@ impl PyScene {
         let batch: arrow::record_batch::RecordBatch = match input {
             AnyRecordBatch::RecordBatch(p) => p.into_inner(),
             AnyRecordBatch::Stream(s) => {
-                let mut reader = s.into_reader()?;
-                reader
-                    .next()
-                    .transpose()
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?
-                    .ok_or_else(|| PyValueError::new_err("empty Arrow stream"))?
+                // Read every batch from the stream and concatenate. Reading only the first
+                // batch silently truncates multi-chunk Tables (e.g. PyArrow Tables built from
+                // multiple batches or large frames auto-chunked by polars / pandas).
+                let reader = s.into_reader()?;
+                let schema = reader.schema();
+                let batches: Vec<arrow::record_batch::RecordBatch> = reader
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                match batches.len() {
+                    0 => return Err(PyValueError::new_err("empty Arrow stream")),
+                    1 => batches.into_iter().next().expect("len == 1"),
+                    _ => arrow::compute::concat_batches(&schema, &batches)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?,
+                }
             }
         };
         let arc = Arc::new(batch);

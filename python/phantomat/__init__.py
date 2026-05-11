@@ -9,12 +9,11 @@ def from_arrow(obj, width: int = 512, height: int = 512):
 
     Accepts PyArrow ``RecordBatch`` or ``Table``, Polars, DuckDB-registered objects, etc.,
     without listing ``pyarrow`` as a required runtime dependency of the wheel (optional for apps).
+
+    Multi-chunk Tables are handed off as a stream to the native side, which concatenates all
+    batches into a single ``RecordBatch`` before rendering (previously only the first batch was
+    rendered, silently dropping the rest of the data).
     """
     s = Scene(width, height)
-    if hasattr(obj, "to_batches"):
-        batches = obj.to_batches()
-        if not batches:
-            raise ValueError("empty Arrow table")
-        obj = batches[0]
     s.add_scatter_arrow(obj)
     return s
