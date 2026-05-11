@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Data loss**: `phantomat.from_arrow(table)` and `Scene.add_scatter_arrow(table)` silently dropped every record batch after the first when the input had multiple chunks (e.g. a multi-batch PyArrow `Table`, a polars/pandas frame converted with default chunking, or a `pa.concat_tables` result). The native `add_scatter_arrow` now consumes the full stream and concatenates all batches before validating the schema, and the Python `from_arrow` wrapper no longer truncates the input to `to_batches()[0]`.
+
 ### Added
 
 - Cargo workspace (`resolver = "2"`) with `crates/*` and `xtask` members; shared `workspace.package` (version **0.0.1**, edition **2021**, **Apache-2.0**, `rust-version` **1.82**).
